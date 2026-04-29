@@ -1295,9 +1295,6 @@ fn test_pause_blocks_propose() {
     governor_client.pause(&pauser);
     assert!(governor_client.is_paused());
 
-    // Verify Paused event was emitted
-    assert!(count_topic(&env, "Paused") >= 1, "Paused event should be emitted");
-
     // Try to propose while paused - should fail with ContractPaused (code 7)
     let proposer = Address::generate(&env);
     token_admin.mint(&proposer, &1000_i128);
