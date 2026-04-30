@@ -192,36 +192,23 @@ function ProposalsPageInner() {
       const startIdx = Number(count) - (currentPage - 1) * PROPOSALS_PER_PAGE;
       const endIdx = Math.max(startIdx - PROPOSALS_PER_PAGE, 0);
 
-      const proposalPromises: Promise<ProposalSummary | null>[] = [];
+      // Build ID list in reverse order (newest first) then batch-fetch
+      const ids: bigint[] = [];
       for (let i = startIdx; i > endIdx && i > 0; i--) {
-        proposalPromises.push(
-          (async () => {
-            try {
-              const proposalId = BigInt(i);
-              const [state, votes] = await Promise.all([
-                client.getProposalState(proposalId),
-                client.getProposalVotes(proposalId),
-              ]);
-              return {
-                id: proposalId,
-                description: `Proposal ${i}`,
-                state,
-                votesFor: votes.votesFor,
-                votesAgainst: votes.votesAgainst,
-                endLedger: 0,
-              };
-            } catch (err) {
-              console.error(`Error fetching proposal ${i}:`, err);
-              return null;
-            }
-          })(),
-        );
+        ids.push(BigInt(i));
       }
 
-      const results = await Promise.all(proposalPromises);
-      const validProposals = results.filter(
-        (p): p is ProposalSummary => p !== null,
-      );
+      const batchResults = await client.getProposalsSummaryBatch(ids);
+      const validProposals: ProposalSummary[] = batchResults
+        .filter((r) => r.state !== undefined && r.votes !== undefined)
+        .map((r) => ({
+          id: r.id,
+          description: `Proposal ${r.id}`,
+          state: r.state!,
+          votesFor: r.votes!.votesFor,
+          votesAgainst: r.votes!.votesAgainst,
+          endLedger: 0,
+        }));
 
       if (append) {
         setProposals((prev) => [...prev, ...validProposals]);

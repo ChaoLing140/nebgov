@@ -787,6 +787,88 @@ export class GovernorClient {
   }
 
   /**
+   * Cast a vote with an on-chain reason string.
+   */
+  async castVoteWithReason(
+    signer: Keypair,
+    proposalId: bigint,
+    support: VoteSupport,
+    reason: string,
+  ): Promise<void> {
+    const account = await this.server.getAccount(signer.publicKey());
+
+    const supportScVal = xdr.ScVal.scvVec([
+      xdr.ScVal.scvSymbol(VoteSupport[support]),
+    ]);
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        this.contract.call(
+          "cast_vote_with_reason",
+          nativeToScVal(signer.publicKey(), { type: "address" }),
+          nativeToScVal(proposalId, { type: "u64" }),
+          supportScVal,
+          nativeToScVal(reason, { type: "string" }),
+        ),
+      )
+      .setTimeout(30)
+      .build();
+
+    const prepared = await this.server.prepareTransaction(tx);
+    prepared.sign(signer);
+    const result = await this.server.sendTransaction(prepared);
+    if (result.status === "ERROR") {
+      throw new Error(`castVoteWithReason failed: ${JSON.stringify(result)}`);
+    }
+    await this.pollForConfirmation(result.hash);
+  }
+
+  /**
+   * Same as {@link castVoteWithReason} but signs with a wallet callback.
+   */
+  async castVoteWithReasonAndSign(
+    signerPublicKey: string,
+    proposalId: bigint,
+    support: VoteSupport,
+    reason: string,
+    signUnsignedXdr: (xdr: string) => Promise<string>,
+  ): Promise<void> {
+    const account = await this.server.getAccount(signerPublicKey);
+
+    const supportScVal = xdr.ScVal.scvVec([
+      xdr.ScVal.scvSymbol(VoteSupport[support]),
+    ]);
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        this.contract.call(
+          "cast_vote_with_reason",
+          nativeToScVal(signerPublicKey, { type: "address" }),
+          nativeToScVal(proposalId, { type: "u64" }),
+          supportScVal,
+          nativeToScVal(reason, { type: "string" }),
+        ),
+      )
+      .setTimeout(30)
+      .build();
+
+    const prepared = await this.server.prepareTransaction(tx);
+    const signedXdr = await signUnsignedXdr(prepared.toXDR());
+    const signed = TransactionBuilder.fromXDR(signedXdr, this.networkPassphrase);
+    const result = await this.server.sendTransaction(signed);
+    if (result.status === "ERROR") {
+      throw new Error(`castVoteWithReasonAndSign failed: ${JSON.stringify(result)}`);
+    }
+    await this.pollForConfirmation(result.hash);
+  }
+
+  /**
    * Cancel a proposal (can only be done by the proposer while it's Pending).
    */
   async cancel(
@@ -2039,6 +2121,79 @@ export class GovernorClient {
       executableAtLedger,
       executionDeadlineLedger,
     };
+  }
+
+  /**
+   * Fetch multiple proposals in a single round-trip using parallel Promise.all.
+   *
+   * Reduces N sequential RPC calls to a single parallel batch. An optional
+   * concurrency limit (default 10) prevents overwhelming the RPC endpoint.
+   *
+   * @param proposalIds Array of proposal IDs to fetch
+   * @param concurrency Max simultaneous RPC calls (default 10)
+   * @returns Array of results — resolved Proposal or Error for each ID
+   */
+  async getProposalsBatch(
+    proposalIds: bigint[],
+    concurrency = 10,
+  ): Promise<Array<{ id: bigint; proposal?: Proposal; error?: Error }>> {
+    const results: Array<{ id: bigint; proposal?: Proposal; error?: Error }> = [];
+
+    for (let i = 0; i < proposalIds.length; i += concurrency) {
+      const chunk = proposalIds.slice(i, i + concurrency);
+      const settled = await Promise.allSettled(
+        chunk.map((id) => this.getProposal(id)),
+      );
+      for (let j = 0; j < chunk.length; j++) {
+        const outcome = settled[j];
+        if (outcome.status === "fulfilled") {
+          results.push({ id: chunk[j], proposal: outcome.value });
+        } else {
+          results.push({ id: chunk[j], error: outcome.reason as Error });
+        }
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Fetch state + votes for multiple proposals in parallel.
+   *
+   * Useful for the proposals list page — replaces sequential fetching with a
+   * single batched round-trip per chunk of proposals.
+   *
+   * @param proposalIds Array of proposal IDs to query
+   * @param concurrency Max simultaneous RPC calls (default 10)
+   */
+  async getProposalsSummaryBatch(
+    proposalIds: bigint[],
+    concurrency = 10,
+  ): Promise<Array<{ id: bigint; state?: ProposalState; votes?: ProposalVotes; error?: Error }>> {
+    const results: Array<{ id: bigint; state?: ProposalState; votes?: ProposalVotes; error?: Error }> = [];
+
+    for (let i = 0; i < proposalIds.length; i += concurrency) {
+      const chunk = proposalIds.slice(i, i + concurrency);
+      const settled = await Promise.allSettled(
+        chunk.map((id) =>
+          Promise.all([
+            this.getProposalState(id),
+            this.getProposalVotes(id),
+          ]),
+        ),
+      );
+      for (let j = 0; j < chunk.length; j++) {
+        const outcome = settled[j];
+        if (outcome.status === "fulfilled") {
+          const [state, votes] = outcome.value;
+          results.push({ id: chunk[j], state, votes });
+        } else {
+          results.push({ id: chunk[j], error: outcome.reason as Error });
+        }
+      }
+    }
+
+    return results;
   }
 }
 
