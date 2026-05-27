@@ -9,10 +9,10 @@ import authRouter from "./routes/auth";
 import notificationsRouter from "./routes/notifications";
 import securityRouter from "./routes/security";
 import { securityMonitor } from "./services/security-monitor";
-import pino from "pino";
 import pinoHttp from "pino-http";
 import swaggerUi from "swagger-ui-express";
 import { generateOpenApiDocument } from "./openapi";
+import { logger } from "./logger";
 
 dotenv.config();
 
@@ -55,7 +55,6 @@ app.use(express.json());
 app.use(cookieParser());
 
 // Logging middleware
-const logger = pino({ level: process.env.LOG_LEVEL ?? "info" });
 app.use(
   pinoHttp({
     logger,
@@ -98,18 +97,18 @@ app.use(
     res: express.Response,
     next: express.NextFunction,
   ) => {
-    console.error("Unhandled error:", err);
+    logger.error({ err }, "Unhandled error");
     res.status(500).json({ error: "Internal server error" });
   },
 );
 
 if (process.env.NODE_ENV !== "test") {
   app.listen(PORT, () => {
-    console.log(`Backend server running on port ${PORT}`);
-    
+    logger.info({ port: PORT }, "Backend server running");
+
     // Start the security monitor
-    securityMonitor.start().catch(err => {
-      console.error("Failed to start security monitor:", err);
+    securityMonitor.start().catch((err) => {
+      logger.error({ err }, "Failed to start security monitor");
     });
   });
 }
