@@ -75,6 +75,7 @@ export default function TreasuryPage() {
     Record<string, boolean>
   >({});
   const [ownerOnChain, setOwnerOnChain] = useState<boolean | null>(null);
+  const [ownerCheckComplete, setOwnerCheckComplete] = useState(false);
   const [spendingCap, setSpendingCap] = useState<TreasurySpendingCap | null>(
     null,
   );
@@ -115,12 +116,7 @@ export default function TreasuryPage() {
 
   const readViewer = publicKey ?? treasuryAccountId;
 
-  const canWrite = Boolean(
-    isConnected &&
-    publicKey &&
-    (ownerOnChain === true ||
-      (ownerOnChain === null && isEnvFallbackOwner(publicKey))),
-  );
+  const canWrite = Boolean(isConnected && publicKey && ownerOnChain === true);
 
   async function fetchBalances() {
     if (!treasuryAccountId) return;
@@ -204,18 +200,22 @@ export default function TreasuryPage() {
       setAlreadyApproved(approvedMap);
 
       if (publicKey) {
+        setOwnerCheckComplete(false);
         if (owners && owners.length > 0) {
           setOwnerOnChain(
             owners.some(
               (owner) => owner.toUpperCase() === publicKey.toUpperCase(),
             ),
           );
+          setOwnerCheckComplete(true);
         } else {
           const own = await treasuryClient.isOwner(viewer, publicKey);
           setOwnerOnChain(own);
+          setOwnerCheckComplete(true);
         }
       } else {
         setOwnerOnChain(null);
+        setOwnerCheckComplete(false);
       }
 
       if (treasuryTokenAddress) {
