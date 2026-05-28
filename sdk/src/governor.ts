@@ -1317,6 +1317,7 @@ export class GovernorClient {
     // Fallback to event scanning
     return this.retry(async () => {
       const events = await this.server.getEvents({
+        startLedger: opts?.fromLedger ?? 1,
         filters: [
           {
             type: "contract",
@@ -1324,21 +1325,19 @@ export class GovernorClient {
             topics: [["VoteCast", "vote"], [voter]],
           },
         ],
-        pagination: {
-          limit: limit * 2, // Fetch extra to filter for relevant events
-        },
+        limit: limit * 2,
       });
 
       const history: VotingHistoryEntry[] = [];
       for (const event of events.events) {
         if (!event.topic || event.topic.length < 2) continue;
-        
+
         // Check if voter matches (second topic)
         const voterTopic = scValToNative(event.topic[1]);
         if (String(voterTopic) !== voter) continue;
 
         // Parse event data
-        const data = event.value?.body?.val;
+        const data = event.value;
         if (!data) continue;
 
         const native = scValToNative(data) as Record<string, unknown>;
