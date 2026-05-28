@@ -192,6 +192,10 @@ impl LiquidityContract {
     }
 
     /// Swap `amount_in` of one pool asset for the other.
+    ///
+    /// Security: `min_amount_out` provides slippage protection (#443).
+    /// Without this parameter, front-running or price manipulation could cause
+    /// the trader to receive far less than expected.
     pub fn swap(
         env: Env,
         trader: Address,
