@@ -47,6 +47,7 @@ pub enum GovernorError {
     VotePeriodTooShort = 28,
     ExecutionWindowZero = 29,
     TooManyCalldataEntries = 30,
+    VotingEnded = 31,
 }
 
 /// Cross-contract interface for the Timelock contract.

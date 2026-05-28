@@ -1570,7 +1570,7 @@ fn test_unpause_via_governance_restores_functionality() {
     // Unpause directly — governance self-calls are blocked by re-entry
     // protection, so the pauser/admin calls unpause() directly (auth mocked).
     // This mirrors how a contract upgrade or admin action would unpause.
-    GovernorContractClient::new(&env, &governor_id).unpause();
+    GovernorContractClient::new(&env, &governor_id).unpause(&admin);
     assert!(
         !governor_client.is_paused(),
         "contract should be unpaused after direct unpause"
@@ -1678,12 +1678,10 @@ fn test_set_pauser_requires_self_auth() {
 
     let pauser = Address::generate(&env);
 
-    // Use mock_all_auths for setup, then replace with specific mock for the test call.
-    // This ensures set_pauser's env.current_contract_address().require_auth() is NOT mocked.
     env.mock_all_auths();
 
     votes_client.initialize(&admin, &token_addr);
-    timelock_client.initialize(&admin, &governor_id, &1, &1_209_600);
+    TimelockContractClient::new(&env, &timelock_id).initialize(&admin, &governor_id, &1, &1_209_600);
     governor_client.initialize(
         &admin,
         &votes_id,
