@@ -7,6 +7,9 @@ use soroban_sdk::{
 #[cfg(test)]
 mod load_tests;
 
+/// Minimum TTL to maintain on checkpoint entries (≈ 30 days at 7.5 s/ledger).
+const CHECKPOINT_TTL_LEDGERS: u32 = 345_600;
+
 /// A voting power checkpoint at a specific ledger sequence.
 #[contracttype]
 #[derive(Clone)]
@@ -241,14 +244,18 @@ impl TokenVotesContract {
     /// Get current voting power of an account.
     /// TODO issue #8: sum power from all delegators pointing to account.
     pub fn get_votes(env: Env, account: Address) -> i128 {
+        let key = DataKey::Checkpoints(account);
         let checkpoints: soroban_sdk::Vec<Checkpoint> = env
             .storage()
             .persistent()
-            .get(&DataKey::Checkpoints(account))
+            .get(&key)
             .unwrap_or(soroban_sdk::Vec::new(&env));
         if checkpoints.is_empty() {
             return 0;
         }
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, CHECKPOINT_TTL_LEDGERS, CHECKPOINT_TTL_LEDGERS);
         let last = checkpoints.last().unwrap();
 
         if !Self::time_weight_enabled(env.clone()) {
@@ -292,11 +299,18 @@ impl TokenVotesContract {
 
     /// Get voting power at a past ledger sequence (snapshot).
     pub fn get_past_votes(env: Env, account: Address, ledger: u32) -> i128 {
+        let key = DataKey::Checkpoints(account);
         let checkpoints: soroban_sdk::Vec<Checkpoint> = env
             .storage()
             .persistent()
-            .get(&DataKey::Checkpoints(account))
+            .get(&key)
             .unwrap_or(soroban_sdk::Vec::new(&env));
+
+        if !checkpoints.is_empty() {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, CHECKPOINT_TTL_LEDGERS, CHECKPOINT_TTL_LEDGERS);
+        }
 
         let cp = Self::binary_search(&checkpoints, ledger);
         if cp.votes <= 0 {
@@ -329,12 +343,19 @@ impl TokenVotesContract {
     /// the value recorded at or just before `ledger`. This is used by the
     /// governor to compute quorum as a fraction of the historical total supply.
     pub fn get_past_total_supply(env: Env, ledger: u32) -> i128 {
+        let key = DataKey::TotalCheckpoints;
         let checkpoints: soroban_sdk::Vec<Checkpoint> = env
             .storage()
             .persistent()
-            .get(&DataKey::TotalCheckpoints)
+            .get(&key)
             .unwrap_or(soroban_sdk::Vec::new(&env));
         
+        if !checkpoints.is_empty() {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, CHECKPOINT_TTL_LEDGERS, CHECKPOINT_TTL_LEDGERS);
+        }
+
         let cp = Self::binary_search(&checkpoints, ledger);
         if cp.votes <= 0 {
             return 0;
