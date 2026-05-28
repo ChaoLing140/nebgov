@@ -294,18 +294,6 @@ router.post(
           .json({ error: "Competition has already started" });
       }
 
-      const existingResult = await client.query(
-        "SELECT * FROM competition_participants WHERE competition_id = $1 AND user_id = $2",
-        [competitionId, userId],
-      );
-
-      if (existingResult.rows.length > 0) {
-        await client.query("ROLLBACK");
-        return res
-          .status(400)
-          .json({ error: "Already joined this competition" });
-      }
-
       const insertResult = await client.query<CompetitionParticipant>(
         `INSERT INTO competition_participants (competition_id, user_id, entry_fee_paid)
          VALUES ($1, $2, $3)
@@ -321,6 +309,9 @@ router.post(
       });
     } catch (error) {
       await client.query("ROLLBACK");
+      if (isUniqueViolation(error)) {
+        return res.status(409).json({ error: "Already joined this competition" });
+      }
       logger.error({ err: error }, "Error joining competition");
       res.status(500).json({ error: "Failed to join competition" });
     } finally {
