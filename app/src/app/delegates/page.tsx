@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import Link from "next/link";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { VotesClient, type TopDelegate, type Network } from "@nebgov/sdk";
 import { useWallet } from "../../lib/wallet-context";
 import { DelegateModal } from "../../components/DelegateModal";
@@ -41,25 +41,18 @@ function formatVotes(votes: bigint): string {
 }
 
 export default function DelegatesPage() {
-  const [delegates, setDelegates] = useState<TopDelegate[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [totalDelegated, setTotalDelegated] = useState(0n);
-  const [totalSupply, setTotalSupply] = useState(0n);
   const [modalOpen, setModalOpen] = useState(false);
   const [prefillAddress, setPrefillAddress] = useState<string>("");
-  const [currentDelegatee, setCurrentDelegatee] = useState<string | null>(null);
   const { publicKey } = useWallet();
+  const queryClient = useQueryClient();
 
-  async function fetchDelegates() {
-    setLoading(true);
-    setError(null);
-    try {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["delegates", publicKey],
+    queryFn: async () => {
       const governorAddress = process.env.NEXT_PUBLIC_GOVERNOR_ADDRESS;
       const timelockAddress = process.env.NEXT_PUBLIC_TIMELOCK_ADDRESS;
       const votesAddress = process.env.NEXT_PUBLIC_VOTES_ADDRESS;
-      const network = (process.env.NEXT_PUBLIC_NETWORK ||
-        "testnet") as Network;
+      const network = (process.env.NEXT_PUBLIC_NETWORK || "testnet") as Network;
       const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL;
 
       if (!governorAddress || !timelockAddress || !votesAddress) {
@@ -75,37 +68,35 @@ export default function DelegatesPage() {
       });
 
       const supply = await client.getTotalSupply();
-      setTotalSupply(supply);
-
-      const topDelegates = await client.getTopDelegates(20);
-      setDelegates(topDelegates);
-      const total = topDelegates.reduce((sum, d) => sum + d.votingPower, 0n);
-      setTotalDelegated(total);
-
-      if (publicKey) {
-        setCurrentDelegatee(await client.getDelegatee(publicKey));
-      } else {
-        setCurrentDelegatee(null);
-      }
-    } catch (err) {
-      console.error("Error fetching delegates:", err);
-      setError(
-        err instanceof Error ? err.message : "Failed to load delegates",
+      const delegates = await client.getTopDelegates(20);
+      const totalDelegated = delegates.reduce(
+        (sum, delegate) => sum + delegate.votingPower,
+        0n,
       );
-    } finally {
-      setLoading(false);
-    }
-  }
+      const currentDelegatee = publicKey
+        ? await client.getDelegatee(publicKey)
+        : null;
 
-  useEffect(() => {
-    fetchDelegates();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [publicKey]);
+      return {
+        delegates,
+        totalDelegated,
+        totalSupply: supply,
+        currentDelegatee,
+      };
+    },
+  });
 
   function handleDelegateClick(address: string) {
     setPrefillAddress(address);
     setModalOpen(true);
   }
+
+  const delegates: TopDelegate[] = data?.delegates ?? [];
+  const totalDelegated = data?.totalDelegated ?? 0n;
+  const totalSupply = data?.totalSupply ?? 0n;
+  const currentDelegatee = data?.currentDelegatee ?? null;
+  const errorMessage =
+    error instanceof Error ? error.message : error ? "Failed to load delegates" : null;
 
   const delegatedPercent =
     totalSupply > 0n
@@ -150,12 +141,12 @@ export default function DelegatesPage() {
         </div>
       )}
 
-      {error && (
+      {errorMessage && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
           <p className="text-red-800 text-sm font-medium">
             Error loading delegates
           </p>
-          <p className="text-red-600 text-sm mt-1">{error}</p>
+          <p className="text-red-600 text-sm mt-1">{errorMessage}</p>
         </div>
       )}
 
@@ -181,7 +172,7 @@ export default function DelegatesPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
-            {loading && (
+            {isLoading && (
               <>
                 <DelegateSkeleton />
                 <DelegateSkeleton />
@@ -189,7 +180,7 @@ export default function DelegatesPage() {
               </>
             )}
 
-            {!loading && delegates.length === 0 && !error && (
+            {!isLoading && delegates.length === 0 && !errorMessage && (
               <tr>
                 <td colSpan={5} className="py-12 text-center text-gray-500">
                   No delegates found. Be the first to delegate!
@@ -197,7 +188,7 @@ export default function DelegatesPage() {
               </tr>
             )}
 
-            {!loading &&
+            {!isLoading &&
               delegates.map((delegate, index) => {
                 const isCurrentUser = publicKey === delegate.address;
                 const percentOfSupply =
@@ -267,7 +258,10 @@ export default function DelegatesPage() {
       <DelegateModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        onDelegated={fetchDelegates}
+        onDelegated={() => {
+          queryClient.invalidateQueries({ queryKey: ["delegates"] });
+          queryClient.invalidateQueries({ queryKey: ["myVotingPower"] });
+        }}
         currentDelegatee={currentDelegatee}
       />
     </div>
