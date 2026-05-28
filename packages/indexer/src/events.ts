@@ -1,6 +1,7 @@
 import { SorobanRpc, scValToNative } from "@stellar/stellar-sdk";
 import { pool } from "./db";
 import { invalidate, invalidatePattern } from "./cache";
+import { broadcast } from "./ws";
 
 /**
  * Normalises both legacy short-symbol topics (e.g. "prop_crtd") and the newer
@@ -15,6 +16,7 @@ const TOPIC_MAP: Record<string, string> = {
   queued: "ProposalQueued",
   executed: "ProposalExecuted",
   delegate: "DelegateChanged",
+  del_chsh: "DelegateChanged",
   config_updated: "ConfigUpdated",
   upgraded: "GovernorUpgraded",
   // New-form (already canonical — identity mappings keep the map exhaustive)
@@ -182,6 +184,10 @@ async function handleProposalCreated(
     [String(id), proposer, description, startLedger, endLedger],
   );
   invalidate(`profile:${proposer}`);
+  broadcast({
+    type: "proposal_created",
+    data: { id: String(id), proposer, description, start_ledger: startLedger, end_ledger: endLedger },
+  });
 }
 
 async function handleVoteCast(
@@ -220,6 +226,10 @@ async function handleVoteCast(
   ]);
   invalidate(`proposal_votes:${proposalId}`, `profile:${voter}`);
   invalidatePattern("proposals:");
+  broadcast({
+    type: "vote_cast",
+    data: { proposal_id: proposalId, voter, support, weight, reason: reason ?? undefined },
+  });
 }
 
 async function handleProposalQueued(topics: unknown[]): Promise<void> {
@@ -229,6 +239,7 @@ async function handleProposalQueued(topics: unknown[]): Promise<void> {
   ]);
   invalidate(`proposal_votes:${proposalId}`);
   invalidatePattern("proposals:");
+  broadcast({ type: "proposal_queued", data: { proposal_id: proposalId } });
 }
 
 async function handleProposalExecuted(topics: unknown[]): Promise<void> {
@@ -238,6 +249,7 @@ async function handleProposalExecuted(topics: unknown[]): Promise<void> {
   ]);
   invalidate(`proposal_votes:${proposalId}`);
   invalidatePattern("proposals:");
+  broadcast({ type: "proposal_executed", data: { proposal_id: proposalId } });
 }
 
 async function handleDelegateChanged(
@@ -255,6 +267,10 @@ async function handleDelegateChanged(
   );
   invalidatePattern("delegates:");
   invalidate(`profile:${delegator}`);
+  broadcast({
+    type: "delegate_changed",
+    data: { delegator, old_delegatee: oldDelegatee, new_delegatee: newDelegatee, ledger: event.ledger },
+  });
 }
 
 async function handleWrapperDeposit(
@@ -271,6 +287,7 @@ async function handleWrapperDeposit(
     [account, amount, event.ledger],
   );
   invalidate(`profile:${account}`);
+  broadcast({ type: "wrapper_deposit", data: { account, amount, ledger: event.ledger } });
 }
 
 async function handleWrapperWithdraw(
@@ -287,6 +304,7 @@ async function handleWrapperWithdraw(
     [account, amount, event.ledger],
   );
   invalidate(`profile:${account}`);
+  broadcast({ type: "wrapper_withdrawal", data: { account, amount, ledger: event.ledger } });
 }
 
 async function handleTreasuryBatchTransfer(

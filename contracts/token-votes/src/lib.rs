@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env,
+    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, Symbol,
 };
 
 #[cfg(test)]
@@ -183,7 +183,7 @@ impl TokenVotesContract {
             .set(&DataKey::DelegatorRecord(delegator.clone()), &new_record);
 
         env.events().publish(
-            (symbol_short!("del_chsh"), delegator.clone()),
+            (Symbol::new(env, "DelegateChanged"), delegator.clone()),
             (previous_delegate, delegatee),
         );
     }
@@ -239,7 +239,6 @@ impl TokenVotesContract {
     }
 
     /// Get current voting power of an account.
-    /// TODO issue #8: sum power from all delegators pointing to account.
     pub fn get_votes(env: Env, account: Address) -> i128 {
         let checkpoints: soroban_sdk::Vec<Checkpoint> = env
             .storage()
@@ -292,6 +291,9 @@ impl TokenVotesContract {
 
     /// Get voting power at a past ledger sequence (snapshot).
     pub fn get_past_votes(env: Env, account: Address, ledger: u32) -> i128 {
+        let current_ledger = env.ledger().sequence();
+        assert!(ledger <= current_ledger, "ledger must not exceed current ledger");
+
         let checkpoints: soroban_sdk::Vec<Checkpoint> = env
             .storage()
             .persistent()
@@ -1055,6 +1057,7 @@ mod tests {
 
     #[test]
     fn test_delegation_emits_events() {
+        use soroban_sdk::TryIntoVal as _;
         let env = Env::default();
         env.mock_all_auths();
 
@@ -1071,13 +1074,22 @@ mod tests {
         client.delegate(&delegator, &delegatee);
 
         let events = env.events().all();
-        // Index 0: Mint
-        // Index 1: Update total supply (v_active event might be used if I changed it, wait)
-        // Actually, my current update_account_votes emits "v_active"
-        // and delegate emits "del_chsh"
+        let mut sub_events: soroban_sdk::Vec<_> = soroban_sdk::Vec::new(&env);
+        for event in events.iter() {
+            if event.0 == contract_id {
+                sub_events.push_back(event.clone());
+            }
+        }
+        assert!(sub_events.len() >= 2);
 
-        let sub_events = events.iter().filter(|e| e.0 == contract_id);
-        assert!(sub_events.count() >= 2);
+        // The last contract event must be the canonical DelegateChanged event
+        // with the delegator as the second topic element (issue #460).
+        let delegate_changed = sub_events.last().unwrap();
+        let topic_0: Result<Symbol, _> = delegate_changed.1.get(0).unwrap().try_into_val(&env);
+        assert!(topic_0.is_ok());
+        assert_eq!(topic_0.unwrap(), Symbol::new(&env, "DelegateChanged"));
+        let topic_1: Result<Address, _> = delegate_changed.1.get(1).unwrap().try_into_val(&env);
+        assert_eq!(topic_1.unwrap(), delegator);
     }
 
     #[test]
@@ -1126,6 +1138,29 @@ mod tests {
         assert_eq!(client.get_past_votes(&user1, &15), 1500);
         assert_eq!(client.get_past_votes(&user1, &20), 1300);
         assert_eq!(client.get_past_votes(&user1, &100), 1300);
+    }
+
+    #[test]
+    #[should_panic(expected = "ledger must not exceed current ledger")]
+    fn test_get_past_votes_panics_on_future_ledger() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let user1 = Address::generate(&env);
+
+        let (contract_id, token_addr) = setup(&env, &admin);
+        let client = TokenVotesContractClient::new(&env, &contract_id);
+        let sac_client = token::StellarAssetClient::new(&env, &token_addr);
+
+        sac_client.mint(&user1, &1000i128);
+        env.ledger().with_mut(|l| {
+            l.sequence_number = 1;
+        });
+        client.delegate(&user1, &user1);
+
+        let current_ledger = env.ledger().sequence();
+        client.get_past_votes(&user1, &(current_ledger + 1));
     }
 
     // \u2014\u2014 Edge-case tests (issue #192) \u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014
