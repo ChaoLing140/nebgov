@@ -58,6 +58,10 @@ pub enum LiquidityError {
     InvalidAmount = 1,
     /// Caller does not have sufficient LP shares for this operation.
     InsufficientShares = 2,
+    /// Swap output is below the caller's minimum acceptable amount.
+    SlippageExceeded = 3,
+    /// Zero amount provided for liquidity operation.
+    ZeroAmount = 4,
 }
 
 #[contract]
@@ -112,12 +116,15 @@ impl LiquidityContract {
     ) -> i128 {
         provider.require_auth();
 
+        // Security: reject zero amounts to prevent zero-reserve pool creation (#444).
+        // A zero-reserve pool would cause divide-by-zero panics in swap() when
+        // computing the AMM ratio, enabling DoS attacks.
         if amount_a <= 0 || amount_b <= 0 {
-            panic!("amounts must be positive");
+            env.panic_with_error(LiquidityError::ZeroAmount);
         }
 
         if amount_a < MIN_LIQUIDITY || amount_b < MIN_LIQUIDITY {
-            panic!("below minimum liquidity");
+            env.panic_with_error(LiquidityError::InvalidAmount);
         }
 
         let (na, nb, swapped) = Self::normalize_outcomes(outcome_a, outcome_b);
@@ -241,6 +248,10 @@ impl LiquidityContract {
     }
 
     /// Swap `amount_in` of one pool asset for the other.
+    ///
+    /// Security: `min_amount_out` provides slippage protection (#443).
+    /// Without this parameter, front-running or price manipulation could cause
+    /// the trader to receive far less than expected.
     pub fn swap(
         env: Env,
         trader: Address,
@@ -278,7 +289,7 @@ impl LiquidityContract {
         let amount_out_with_fee = amount_out - fee;
 
         if amount_out_with_fee < min_amount_out {
-            panic!("slippage exceeded");
+            env.panic_with_error(LiquidityError::SlippageExceeded);
         }
 
         if trading_a_to_b {

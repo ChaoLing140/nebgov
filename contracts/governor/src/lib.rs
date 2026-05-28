@@ -601,6 +601,13 @@ impl GovernorContract {
             env.panic_with_error(GovernorError::TooManyCalldataEntries);
         }
 
+        // Validate metadata URI is non-empty (#445).
+        // A proposal with no content URI has no verifiable off-chain description,
+        // making it indistinguishable from a governance-cycle-wasting no-op.
+        if metadata_uri.len() == 0 {
+            env.panic_with_error(GovernorError::EmptyMetadataUri);
+        }
+
         // Rate limiting checks (Issue #188)
         let current_ledger = env.ledger().sequence();
 
@@ -1036,6 +1043,13 @@ impl GovernorContract {
         }
 
         let mut proposal = Self::must_get_proposal(&env, proposal_id);
+
+        // Defense-in-depth: directly verify proposal state flags independent of
+        // the state() call above (#446). Guards against any future gap in the
+        // state machine where state() could incorrectly return Queued.
+        if !proposal.queued || proposal.cancelled {
+            env.panic_with_error(GovernorError::ProposalNotQueued);
+        }
 
         if proposal.executed {
             env.panic_with_error(GovernorError::ProposalAlreadyExecuted);
