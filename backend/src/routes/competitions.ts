@@ -158,7 +158,7 @@ router.get(
   authenticate,
   validate({ params: getCompetitionSchema }),
   async (req: AuthRequest, res: Response) => {
-    const competitionId = (req.params as any).id;
+    const competitionId = Number((req.params as Record<string, string>).id);
 
     try {
       const result = await pool.query(
