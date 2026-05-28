@@ -7,6 +7,9 @@ use soroban_sdk::{
     Val, Vec,
 };
 
+/// Absolute minimum delay in seconds that the admin is allowed to set.
+const MIN_DELAY: u64 = 86_400;
+
 /// Timelock error codes.
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -17,6 +20,8 @@ pub enum TimelockError {
     PredecessorNotFound = 2,
     /// Operation can no longer be executed because its execution window elapsed.
     OperationExpired = 3,
+    /// New delay is below the absolute minimum allowed.
+    DelayTooShort = 4,
 }
 
 /// A scheduled timelock operation.
@@ -410,16 +415,33 @@ impl TimelockContract {
     pub fn update_delay(env: Env, caller: Address, new_delay: u64) {
         caller.require_auth();
         assert!(caller == Self::admin(env.clone()), "only admin");
+        if new_delay < MIN_DELAY {
+            env.panic_with_error(TimelockError::DelayTooShort);
+        }
+        let old_delay: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MinDelay)
+            .unwrap_or(86400);
         env.storage().instance().set(&DataKey::MinDelay, &new_delay);
+        env.events()
+            .publish((symbol_short!("upd_dly"),), (old_delay, new_delay));
     }
 
     /// Update the execution window. Only admin.
     pub fn update_execution_window(env: Env, caller: Address, new_window: u64) {
         caller.require_auth();
         assert!(caller == Self::admin(env.clone()), "only admin");
+        let old_window: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ExecutionWindow)
+            .unwrap_or(1209600);
         env.storage()
             .instance()
             .set(&DataKey::ExecutionWindow, &new_window);
+        env.events()
+            .publish((symbol_short!("upd_win"),), (old_window, new_window));
     }
 
     fn require_governor(env: &Env, caller: &Address) {
