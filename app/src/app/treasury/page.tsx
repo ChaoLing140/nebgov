@@ -389,6 +389,12 @@ export default function TreasuryPage() {
         </div>
       )}
 
+      {isConnected && publicKey && !ownerCheckComplete && (
+        <div className="mb-6 bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-700">
+          Verifying treasury owner permissions...
+        </div>
+      )}
+
       {isConnected && publicKey && !canWrite && ownerOnChain === false && (
         <div className="mb-6 bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm text-gray-600">
           This wallet is not a treasury owner — you can view balances and
