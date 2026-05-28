@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, token, Address, Env, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, Vec};
 
 /// A voting power checkpoint at a specific ledger sequence.
 #[contracttype]
@@ -143,6 +143,19 @@ impl TokenVotesWrapperContract {
             .set(&DataKey::UnderlyingToken, &underlying_token);
     }
 
+    /// Upgrade the contract WASM.
+    /// Only the admin (governor) can call this.
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("not initialized");
+        admin.require_auth();
+        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+        env.events().publish((symbol_short!("upgrade"),), (new_wasm_hash,));
+    }
+
     /// Deposit `amount` of the underlying SEP-41 token and receive 1:1 wrapped voting tokens.
     /// Automatically self-delegates if the depositor has no delegatee set.
     pub fn deposit(env: Env, from: Address, amount: i128) {
@@ -280,7 +293,11 @@ impl TokenVotesWrapperContract {
         assert_eq!(caller, admin, "only admin can lock withdrawals");
         env.storage()
             .persistent()
-            .set(&DataKey::LockedUntil(from), &end_ledger);
+            .set(&DataKey::LockedUntil(from.clone()), &end_ledger);
+        env.events().publish(
+            (symbol_short!("lock_wd"),),
+            (from, end_ledger, env.ledger().sequence()),
+        );
     }
 
     // --- VotesTrait compatible methods (for GovernorClient cross-contract calls) ---
