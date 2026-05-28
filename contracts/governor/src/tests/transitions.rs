@@ -201,6 +201,17 @@ fn test_defeated_when_against_wins() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #30)")]
+/// Verifies that cast_vote rejects votes submitted after the voting period has ended.
+fn test_cast_vote_rejects_after_voting_period_end() {
+    let (env, client, _, proposer, voter) = setup();
+    let proposal_id = make_proposal(&env, &client, &proposer);
+
+    env.ledger().set_sequence_number(111); // Past end_ledger (10 + 100)
+    client.cast_vote(&voter, &proposal_id, &VoteSupport::For);
+}
+
+#[test]
 /// Verifies that a proposal is Defeated if voting ends in a tie
 /// (votes_against == votes_for).
 fn test_defeated_when_votes_for_equals_votes_against() {

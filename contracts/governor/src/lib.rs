@@ -800,6 +800,11 @@ impl GovernorContract {
 
         let mut proposal = Self::must_get_proposal(&env, proposal_id);
 
+        let current = env.ledger().sequence();
+        if current < proposal.start_ledger || current > proposal.end_ledger {
+            env.panic_with_error(GovernorError::VotingEnded);
+        }
+
         // Look up the voter's snapshot voting power at the proposal's start ledger
         // using the active voting strategy (single token or multi-token weighted).
         let raw_weight: i128 = Self::compute_votes(&env, &voter, &proposal.start_ledger);
@@ -869,6 +874,11 @@ impl GovernorContract {
         }
 
         let mut proposal = Self::must_get_proposal(&env, proposal_id);
+
+        let current = env.ledger().sequence();
+        if current < proposal.start_ledger || current > proposal.end_ledger {
+            env.panic_with_error(GovernorError::VotingEnded);
+        }
 
         // Look up the voter's snapshot voting power at the proposal's start ledger
         let raw_weight: i128 = Self::compute_votes(&env, &voter, &proposal.start_ledger);
