@@ -473,6 +473,7 @@ function ProposeWizardInner() {
   }
 
   async function submitProposal() {
+    if (submitting) return;
     if (!clients || !publicKey || !signTransaction) return;
     setSubmitting(true);
     setSubmitError(null);

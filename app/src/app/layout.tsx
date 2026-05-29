@@ -38,7 +38,17 @@ export default async function RootLayout({
         <NextIntlClientProvider messages={messages}>
           <WalletProvider>
             <GovernorNotificationsProvider>
-              <Toaster position="bottom-right" />
+              <Toaster
+                position="bottom-right"
+                toastOptions={{
+                  duration: 4000,
+                  style: { maxWidth: "400px" },
+                  success: { duration: 4000 },
+                  error: { duration: 6000 },
+                }}
+                containerStyle={{ bottom: 24, right: 24 }}
+                gutter={8}
+              />
               <NavBar />
               <main className="pt-16">{children}</main>
             </GovernorNotificationsProvider>
